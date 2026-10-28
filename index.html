@@ -51,6 +51,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 
     <!-- Inter Font -->
@@ -2039,7 +2040,7 @@ const base=n=>n.replace(/\.[^.]+$/,''),ext=n=>(n.split('.').pop()||'').toLowerCa
 const sz=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB';
 const msg=(t,e)=>{const m=$('#msg');m.textContent=t;m.className=e?'err':''};
 const pdfBlob=async d=>new Blob([await d.save()],{type:'application/pdf'});
-const ld=async f=>pl.PDFDocument.load(await f.arrayBuffer(),{ignoreEncryption:true});
+const ld=async f=>{const d=await pl.PDFDocument.load(await f.arrayBuffer(),{ignoreEncryption:true});if(d.isEncrypted)throw new Error(f.name+' terkunci kata sandi. Buka dulu lewat alat Buka kunci PDF.');return d};
 const tb=(c,t,q)=>new Promise(r=>c.toBlob(r,t,q));
 function rng(s,n){const o=[];for(const p of String(s).split(',')){const m=p.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m)continue;let a=+m[1],b=+(m[2]||m[1]);if(a>b)[a,b]=[b,a];for(let i=Math.max(a,1);i<=Math.min(b,n);i++)if(!o.includes(i-1))o.push(i-1)}
  if(!o.length)throw new Error('Rentang halaman tidak valid. Contoh: 1-3, 5');return o}
@@ -2080,41 +2081,144 @@ async convert(fs,o){const r=[],OUT={img:['png','jpg','webp','pdf'],data:['xlsx',
   r.push({name:base(f.name)+'.'+to,blob:b})}
  return r}
 };
-const lat=s=>s.replace(/\r/g,'').replace(/\t/g,'    ').replace(/[^\n\f\x20-\x7e]/g,'?');
-async function t2p(text){const d=await pl.PDFDocument.create(),ft=await d.embedFont(pl.StandardFonts.Helvetica);let pg=d.addPage([595,842]),y=800;
- for(const ln of lat(text).split('\n')){if(ln==='\f'){pg=d.addPage([595,842]);y=800;continue}let c='';const out=[];for(const w of ln.split(' ')){const t=c?c+' '+w:w;if(ft.widthOfTextAtSize(t,11)>515&&c){out.push(c);c=w}else c=t}out.push(c);
-  for(const l of out){if(y<50){pg=d.addPage([595,842]);y=800}pg.drawText(l,{x:40,y,size:11,font:ft});y-=15}}return pdfBlob(d)}
-const cells=l=>{const r=[];let p=null;for(const c of l.c){if(p&&c.x-(p.x+p.w)<4){p.s+=c.s;p.w=c.x+c.w-p.x}else r.push(p={x:c.x,s:c.s,w:c.w})}return r.map(c=>c.s.trim()).filter(Boolean)};
-async function tx(f){const pdf=await pjs(f),P=[];for(let i=1;i<=pdf.numPages;i++){const tc=await(await pdf.getPage(i)).getTextContent(),L=[];
- for(const it of tc.items){if(!it.str)continue;const y=it.transform[5],h=it.height||Math.abs(it.transform[3]);let l=L.find(l=>Math.abs(l.y-y)<2.5);if(!l)L.push(l={y,h,c:[]});l.c.push({x:it.transform[4],s:it.str,w:it.width});l.h=Math.max(l.h,h)}
- L.sort((a,b)=>b.y-a.y);L.forEach(l=>l.c.sort((a,b)=>a.x-b.x));P.push(L.filter(l=>cells(l).length))}return P}
-async function rasterDoc(pdf,sc,q){const out=await pl.PDFDocument.create();for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);const v=(await pdf.getPage(i)).getViewport({scale:1}),im=await out.embedJpg(await(await tb(await raster(pdf,i,sc),'image/jpeg',q)).arrayBuffer());out.addPage([v.width,v.height]).drawImage(im,{x:0,y:0,width:v.width,height:v.height})}return out}
-const cp=async(s,ix)=>{const d=await pl.PDFDocument.create();(await d.copyPages(s,ix)).forEach(p=>d.addPage(p));return d};
 const X=(f,s,b,note)=>[{name:base(f.name)+s,blob:b,note}];
+const xe=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'');
+const cp=async(s,ix)=>{const d=await pl.PDFDocument.create();(await d.copyPages(s,ix)).forEach(p=>d.addPage(p));return d};
+const snap=async wr=>(await tb(await html2canvas(wr,{scale:2,backgroundColor:'#fff',logging:false}),'image/jpeg',.92)).arrayBuffer();
+const mkwrap=(w,h)=>{const wr=document.createElement('div');wr.style.cssText=`position:fixed;left:0;top:0;z-index:-1;width:${w}px;height:${h}px;background:#fff;overflow:hidden`;document.body.appendChild(wr);return wr};
+const decodeImgs=el=>Promise.all([...el.querySelectorAll('img')].map(i=>i.decode?i.decode().catch(()=>{}):0));
+const CSS='.ftp{font:13px/1.55 Arial,Helvetica,sans-serif;color:#111;box-sizing:border-box;padding:0 48px;width:794px;word-wrap:break-word}.ftp img{max-width:100%;height:auto;max-height:980px}.ftp table{border-collapse:collapse;margin:6px 0;width:100%}.ftp td,.ftp th{border:1px solid #444;padding:4px 6px;vertical-align:top;font-size:12px}.ftp th{background:#eee}.ftp h1{font-size:24px;margin:0 0 8px}.ftp h2{font-size:20px;margin:0 0 8px}.ftp h3{font-size:16px;margin:0 0 8px}.ftp p{margin:0 0 8px}.ftp ul,.ftp ol{margin:0 0 8px;padding-left:28px}';
+async function htmlToPdf(html){
+  if(!html.replace(/<[^>]+>/g,'').trim()&&!/<img|<table/i.test(html))throw new Error('Dokumen kosong atau tidak terbaca.');
+  const st=document.createElement('style');st.textContent=CSS;document.head.appendChild(st);
+  const wr=mkwrap(794,1123),vp=document.createElement('div'),c=document.createElement('div');
+  vp.style.cssText='position:absolute;left:0;top:48px;width:794px;height:1027px;overflow:hidden';c.className='ftp';c.innerHTML=html;vp.appendChild(c);wr.appendChild(vp);
+  try{
+    await decodeImgs(c);
+    const top=c.getBoundingClientRect().top,total=c.scrollHeight,H=1027,starts=[0];
+    const at=[...c.querySelectorAll('p,h1,h2,h3,h4,h5,h6,tr,li,img,pre,blockquote')].filter(e=>e.tagName==='TR'||!e.closest('td,th')).map(e=>e.getBoundingClientRect().bottom-top).sort((a,b)=>a-b);
+    let s=0;while(total-s>H){const e=s+H;let b=0;for(const v of at)if(v<=e&&v>s+H*.4)b=v;s=b||e;starts.push(s)}
+    const out=await pl.PDFDocument.create();
+    for(let i=0;i<starts.length;i++){msg(`Membuat halaman ${i+1} dari ${starts.length}…`);c.style.marginTop=-starts[i]+'px';
+      const im=await out.embedJpg(await snap(wr));out.addPage([595,842]).drawImage(im,{x:0,y:0,width:595,height:842})}
+    return pdfBlob(out)
+  }finally{wr.remove();st.remove()}
+}
+// ===== baca teks, tabel, gambar dari PDF =====
+const cg=(l,g)=>{const r=[];let p=null;for(const c of l.c){if(p&&c.x-(p.x+p.w)<g){p.s+=c.s;p.w=c.x+c.w-p.x}else r.push(p={x:c.x,s:c.s,w:c.w})}return r.map(c=>({...c,s:c.s.trim()})).filter(c=>c.s)};
+function lines(tc){const L=[];for(const it of tc.items){if(!it.str)continue;const y=it.transform[5],h=it.height||Math.abs(it.transform[3]);let l=L.find(l=>Math.abs(l.y-y)<Math.max(2,h*.3));if(!l)L.push(l={y,h,c:[]});l.c.push({x:it.transform[4],s:it.str,w:it.width});l.h=Math.max(l.h,h)}
+  L.sort((a,b)=>b.y-a.y);for(const l of L){l.c.sort((a,b)=>a.x-b.x);l.cs=cg(l,Math.max(14,l.h*1.8));l.x0=l.c[0].x;l.r=Math.max(...l.c.map(c=>c.x+c.w))}return L.filter(l=>l.cs.length)}
+const txt=l=>l.cs.map(c=>c.s).join(' ');
+function blocks(L){if(!L.length)return[];const Lm=Math.min(...L.map(l=>l.x0)),R=Math.max(...L.map(l=>l.r)),B=[];
+  for(let i=0;i<L.length;){let j=i;while(j<L.length&&L[j].cs.length>=2)j++;
+    if(j-i>=2){B.push({t:'tbl',y:L[i].y,rows:L.slice(i,j)});i=j;continue}
+    const l=L[i],pr=B[B.length-1];
+    if(pr&&pr.t==='p'&&pr.last.y>l.y&&pr.last.y-l.y<l.h*1.9&&Math.abs(l.h-pr.last.h)<1&&pr.last.r>R-(R-Lm)*.25&&l.x0<=pr.last.x0+8){pr.s+=' '+txt(l);pr.last=l}
+    else B.push({t:'p',y:l.y,h:l.h,x0:l.x0,r:l.r,s:txt(l),last:l,Lm,R});
+    i++}return B}
+function colsOf(rows){const iv=rows.flat().map(c=>[c.x,c.x+c.w]).sort((a,b)=>a[0]-b[0]),M=[];for(const[a,b]of iv){const l=M[M.length-1];if(l&&a<=l[1]+2)l[1]=Math.max(l[1],b);else M.push([a,b])}return M}
+const place=(r,M)=>{const o=M.map(()=>'');for(const c of r){const m=c.x+c.w/2;let k=M.findIndex(v=>m>=v[0]-1&&m<=v[1]+1);if(k<0)k=0;o[k]=(o[k]?o[k]+' ':'')+c.s}return o};
+const mul=(a,b)=>[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];
+function toCanvas(im){const{width:w,height:h,data,kind}=im,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');
+  if(im.bitmap)x.drawImage(im.bitmap,0,0);else{const id=x.createImageData(w,h),o=id.data;
+    if(kind===3)o.set(data);else if(kind===2)for(let i=0,j=0;i<data.length;i+=3,j+=4){o[j]=data[i];o[j+1]=data[i+1];o[j+2]=data[i+2];o[j+3]=255}
+    else{const rb=(w+7)>>3;for(let r=0;r<h;r++)for(let k=0;k<w;k++){const v=(data[r*rb+(k>>3)]>>(7-(k&7)))&1?255:0,j=(r*w+k)*4;o[j]=o[j+1]=o[j+2]=v;o[j+3]=255}}x.putImageData(id,0,0)}
+  const k=Math.min(1,1800/Math.max(w,h));if(k<1){const s=document.createElement('canvas');s.width=Math.round(w*k);s.height=Math.round(h*k);s.getContext('2d').drawImage(c,0,0,s.width,s.height);return s}return c}
+async function pageImgs(pg){const O=pdfjsLib.OPS,ol=await pg.getOperatorList(),R=[],S=[];let m=[1,0,0,1,0,0];
+  for(let i=0;i<ol.fnArray.length;i++){const f=ol.fnArray[i],a=ol.argsArray[i];
+    if(f===O.save)S.push(m);else if(f===O.restore)m=S.pop()||m;else if(f===O.transform)m=mul(m,a);
+    else if(f===O.paintImageXObject||f===O.paintInlineImageXObject){
+      try{const xs=[m[4],m[4]+m[0],m[4]+m[2],m[4]+m[0]+m[2]],ys=[m[5],m[5]+m[1],m[5]+m[3],m[5]+m[1]+m[3]],w=Math.max(...xs)-Math.min(...xs),h=Math.max(...ys)-Math.min(...ys);if(w<20||h<20)continue;
+        const im=f===O.paintInlineImageXObject?a[0]:await Promise.race([new Promise(r=>(String(a[0]).startsWith('g_')?pg.commonObjs:pg.objs).get(a[0],r)),new Promise(r=>setTimeout(()=>r(null),4000))]);if(!im)continue;
+        const c=toCanvas(im),png=im.kind===3||c.width*c.height<250000;R.push({x:Math.min(...xs),y:Math.min(...ys),w,h,ext:png?'png':'jpeg',bytes:await(await tb(c,png?'image/png':'image/jpeg',.88)).arrayBuffer()})}catch(e){}}}
+  return R}
+// ===== pembuat .docx (tanpa library tambahan) =====
+const NS='xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+function Docx(PW,PH,MG){const z=new JSZip(),rl=[],B=[];let n=0,pb=0;
+  const pp=o=>{let s=pb?'<w:pageBreakBefore/>':'';pb=0;s+=`<w:spacing w:before="0" w:after="${o.after??80}"/>`;if(o.ind)s+=`<w:ind w:left="${o.ind}"/>`;if(o.jc)s+=`<w:jc w:val="${o.jc}"/>`;return`<w:pPr>${s}</w:pPr>`};
+  const par=(t,o={})=>`<w:p>${pp(o)}<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>${o.b?'<w:b/>':''}<w:sz w:val="${o.sz||22}"/></w:rPr><w:t xml:space="preserve">${xe(t)}</w:t></w:r></w:p>`;
+  return{
+    brk(){pb=1},
+    p(t,o){B.push(par(t,o))},
+    img(bytes,e,w,h,tight){const id=++n,cx=Math.round(w*12700),cy=Math.round(h*12700);z.file(`word/media/i${id}.${e}`,bytes);rl.push(`<Relationship Id="rI${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/i${id}.${e}"/>`);
+      B.push(`<w:p>${pp({after:tight?0:80})}<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="Gambar ${id}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${id}" name="i${id}.${e}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rI${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`)},
+    tbl(rows,ws,sz){const bd=['top','left','bottom','right','insideH','insideV'].map(k=>`<w:${k} w:val="single" w:sz="4" w:space="0" w:color="808080"/>`).join('');
+      B.push(`<w:tbl><w:tblPr><w:tblW w:w="${ws.reduce((a,b)=>a+b,0)}" w:type="dxa"/><w:tblBorders>${bd}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${ws.map(w=>`<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>${rows.map(r=>`<w:tr>${r.map((t,i)=>`<w:tc><w:tcPr><w:tcW w:w="${ws[i]}" w:type="dxa"/></w:tcPr>${par(t,{sz,after:0})}</w:tc>`).join('')}</w:tr>`).join('')}</w:tbl><w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`)},
+    out(){const m=Math.round(MG*20),H='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+      z.file('[Content_Types].xml',H+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+      z.file('_rels/.rels',H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+      z.file('word/_rels/document.xml.rels',H+`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rl.join('')}</Relationships>`);
+      z.file('word/document.xml',H+`<w:document ${NS}><w:body>${B.join('')}<w:sectPr><w:pgSz w:w="${Math.round(PW*20)}" w:h="${Math.round(PH*20)}"/><w:pgMar w:top="${m}" w:right="${m}" w:bottom="${m}" w:left="${m}" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+      return z.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}}}
+// ===== gambar teks (watermark, tanda tangan) =====
+async function txtPng(t,font,size,col,op){const c=document.createElement('canvas'),x=c.getContext('2d'),F=`${size}px ${font}`;x.font=F;const w=Math.ceil(x.measureText(t).width)+24,h=Math.ceil(size*1.6);c.width=w;c.height=h;x.font=F;x.fillStyle=col;x.globalAlpha=op;x.textBaseline='middle';x.fillText(t,12,h/2);return{bytes:await(await tb(c,'image/png')).arrayBuffer(),w,h}}
+const pick=(s,n)=>/^\s*(semua|all)?\s*$/i.test(s||'')?[...Array(n).keys()]:rng(s,n);
 const unesc=s=>s.replace(/<[^>]+>/g,'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
-const NT='Hanya teks; gambar dan format tidak ikut';
 Object.assign(ops,{
+async merge(fs){const out=await pl.PDFDocument.create();for(const f of fs){if(ext(f.name)==='pdf'){const s=await ld(f);(await out.copyPages(s,s.getPageIndices())).forEach(p=>out.addPage(p))}else{const c=await flat(f),im=await out.embedJpg(await(await tb(c,'image/jpeg',.92)).arrayBuffer());out.addPage([c.width*.75,c.height*.75]).drawImage(im,{x:0,y:0,width:c.width*.75,height:c.height*.75})}}return[{name:'gabungan.pdf',blob:await pdfBlob(out)}]},
 async extract(fs,o){const s=await ld(fs[0]);return X(fs[0],'-ekstrak.pdf',await pdfBlob(await cp(s,rng(o.range,s.getPageCount()))))},
 async organize(fs,o){const s=await ld(fs[0]),n=s.getPageCount(),ix=rng(o.order,n);if(o.rest==='Taruh di akhir')for(let i=0;i<n;i++)if(!ix.includes(i))ix.push(i);return X(fs[0],'-urut.pdf',await pdfBlob(await cp(s,ix)))},
 async repair(fs){const s=await ld(fs[0]);return X(fs[0],'-perbaikan.pdf',await pdfBlob(await cp(s,s.getPageIndices())),'Halaman disalin ulang ke PDF baru')},
-async word2pdf(fs){const r=await mammoth.extractRawText({arrayBuffer:await fs[0].arrayBuffer()});return X(fs[0],'.pdf',await t2p(r.value),NT)},
-async xls2pdf(fs){const wb=XLSX.read(await fs[0].arrayBuffer());let t='';wb.SheetNames.forEach((n,i)=>{if(i)t+='\n\f\n';t+='== '+n+' ==\n'+XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:''}).map(r=>r.join(' | ')).join('\n')});return X(fs[0],'.pdf',await t2p(t),'Tabel ditulis sebagai teks, kolom dipisah garis tegak')},
-async ppt2pdf(fs){const z=await JSZip.loadAsync(await fs[0].arrayBuffer()),ns=Object.keys(z.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a,b)=>a.match(/\d+/)[0]-b.match(/\d+/)[0]);if(!ns.length)throw new Error('Slide tidak ditemukan (hanya format .pptx).');
- const t=[];for(const n of ns)t.push((await z.file(n).async('string')).split('</a:p>').map(p=>unesc((p.match(/<a:t(?: [^>]*)?>[^<]*<\/a:t>/g)||[]).join(''))).filter(Boolean).join('\n'));return X(fs[0],'.pdf',await t2p(t.join('\n\f\n')),'Satu slide per halaman, hanya teks')},
-async html2pdf(fs){const d=new DOMParser().parseFromString(await fs[0].text(),'text/html');d.querySelectorAll('script,style').forEach(e=>e.remove());return X(fs[0],'.pdf',await t2p(d.body.textContent||''),NT)},
-async pdf2word(fs){const P=await tx(fs[0]);let h='';P.forEach((L,i)=>{h+=L.map(l=>`<p>${esc(cells(l).join(' '))}</p>`).join('')+(i<P.length-1?'<br clear=all style="page-break-before:always">':'')});
- return X(fs[0],'.doc',new Blob(['<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"></head><body>'+h+'</body></html>'],{type:'application/msword'}),'Hanya teks, bisa dibuka di Word')},
-async pdf2xlsx(fs){const P=await tx(fs[0]),wb=XLSX.utils.book_new();P.forEach((L,i)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(L.map(cells)),'Hal '+(i+1)));return X(fs[0],'.xlsx',new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})]),'Kolom ditebak dari jarak teks')},
-async pdf2md(fs){const P=await tx(fs[0]),hs=P.flat().map(l=>l.h).sort((a,b)=>a-b),m=hs[hs.length>>1]||10;let o='';P.forEach(L=>L.forEach(l=>{o+=(l.h>m*1.4?'# ':l.h>m*1.15?'## ':'')+cells(l).join(' ')+'\n\n'}));return X(fs[0],'.md',new Blob([o],{type:'text/markdown'}),'Judul ditebak dari ukuran huruf')},
+async rotate(fs,o){const f=fs[0],d=await ld(f),a=+o.deg,ps=d.getPages();pick(o.range,ps.length).forEach(i=>ps[i].setRotation(pl.degrees((ps[i].getRotation().angle+a)%360)));return X(f,'-putar.pdf',await pdfBlob(d))},
+async pdf2jpg(fs,o){const f=fs[0],pdf=await pjs(f),r=[],sc={Normal:2,Tinggi:3,'Sangat tinggi':4}[o.sc]||2,png=o.fmt==='PNG';for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);r.push({name:`${base(f.name)}-hal${i}.${png?'png':'jpg'}`,blob:await tb(await raster(pdf,i,sc),png?'image/png':'image/jpeg',.92)})}return r},
+async compress(fs,o){const f=fs[0],q={Rendah:[.5,1000],Sedang:[.68,1500],Tinggi:[.82,2200]}[o.q],agr=o.mode.startsWith('Agresif');let b;
+  if(agr){b=await pdfBlob(await rasterDoc(await pjs(f),{Rendah:1.2,Sedang:1.6,Tinggi:2.2}[o.q],q[0]))}
+  else{const s=await ld(f);let n=0;
+    for(const[ref,ob]of s.context.enumerateIndirectObjects()){if(!(ob instanceof pl.PDFRawStream))continue;const d=ob.dict,N=pl.PDFName.of;if(d.get(N('Subtype'))!==N('Image')||d.get(N('Filter'))!==N('DCTDecode'))continue;
+      try{const w=d.get(N('Width')).asNumber(),h=d.get(N('Height')).asNumber();if(w*h<120000)continue;msg(`Mengecilkan gambar ${++n}…`);
+        const bm=await createImageBitmap(new Blob([ob.contents],{type:'image/jpeg'})),k=Math.min(1,q[1]/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(bm,0,0,c.width,c.height);
+        const by=new Uint8Array(await(await tb(c,'image/jpeg',q[0])).arrayBuffer());if(by.length>=ob.contents.length*.9)continue;
+        const nd=s.context.obj({Type:'XObject',Subtype:'Image',Width:c.width,Height:c.height,ColorSpace:'DeviceRGB',BitsPerComponent:8,Filter:'DCTDecode',Length:by.length}),sm=d.get(N('SMask'));if(sm)nd.set(N('SMask'),sm);
+        s.context.assign(ref,pl.PDFRawStream.of(nd,by))}catch(e){}}
+    b=await pdfBlob(s)}
+  if(b.size>=f.size)return[{name:f.name,blob:f,note:`Ukuran sudah optimal (${sz(f.size)}), file asli dikembalikan.`+(agr?'':' Coba mode Agresif.')}];
+  return X(f,'-kompres.pdf',b,`${sz(f.size)} → ${sz(b.size)} (hemat ${Math.round(100-b.size/f.size*100)}%)`+(agr?'':', teks tetap bisa diseleksi'))},
+async watermark(fs,o){const f=fs[0],d=await ld(f),ps=d.getPages(),t=o.text||'RAHASIA',im=await d.embedPng((await txtPng(t,'Arial, Helvetica, sans-serif',160,'#808080',+o.op)).bytes),g=await txtPng(t,'Arial, Helvetica, sans-serif',160,'#808080',+o.op),ang=o.ang==='Miring'?45:0;
+  pick(o.range,ps.length).forEach(i=>{const p=ps[i],{width:W,height:H}=p.getSize(),s=Math.min(1,(ang?Math.min(W,H)*1.05:W*.8)/g.w)*(ang?1:1),w=g.w*s,h=g.h*s,r=ang*Math.PI/180,cx=w/2*Math.cos(r)-h/2*Math.sin(r),cy=w/2*Math.sin(r)+h/2*Math.cos(r);p.drawImage(im,{x:W/2-cx,y:H/2-cy,width:w,height:h,rotate:pl.degrees(ang)})});
+  return X(f,'-watermark.pdf',await pdfBlob(d))},
+async sign(fs,o){const f=fs[0],d=await ld(f),t=o.text||'Nama',g=await txtPng(t,'"Brush Script MT","Segoe Script","Snell Roundhand","Lucida Handwriting",cursive',96,'#0b2a8c',1),im=await d.embedPng(g.bytes),ps=d.getPages(),h=46,w=g.w/g.h*h;
+  (o.pg==='Semua halaman'?ps:[o.pg==='Halaman pertama'?ps[0]:ps[ps.length-1]]).forEach(p=>{const W=p.getWidth(),x=o.pos==='Kiri bawah'?44:o.pos==='Tengah bawah'?(W-w)/2:W-44-w;p.drawImage(im,{x,y:46,width:w,height:h});p.drawLine({start:{x:x,y:48},end:{x:x+w,y:48},thickness:.7,color:pl.rgb(.05,.1,.5)})});
+  return X(f,'-ttd.pdf',await pdfBlob(d),'Tanda tangan berupa tulisan tangan dari teks')},
+async word2pdf(fs){const r=await mammoth.convertToHtml({arrayBuffer:await fs[0].arrayBuffer()});return X(fs[0],'.pdf',await htmlToPdf(r.value),'Teks, gambar, dan tabel ikut. Halaman berupa gambar, teks tidak bisa diseleksi')},
+async html2pdf(fs){const d=new DOMParser().parseFromString(await fs[0].text(),'text/html');d.querySelectorAll('script,style,link,iframe,object').forEach(e=>e.remove());return X(fs[0],'.pdf',await htmlToPdf(d.body.innerHTML),'CSS eksternal tidak ikut')},
+async xls2pdf(fs){const wb=XLSX.read(await fs[0].arrayBuffer());return X(fs[0],'.pdf',await htmlToPdf(wb.SheetNames.map(n=>`<h3>${esc(n)}</h3>`+XLSX.utils.sheet_to_html(wb.Sheets[n],{header:'',footer:''})).join('')),'Semua sheet jadi tabel di PDF')},
+async ppt2pdf(fs){const z=await JSZip.loadAsync(await fs[0].arrayBuffer()),rd=async n=>z.file(n)?z.file(n).async('string'):'',xp=s=>new DOMParser().parseFromString(s,'application/xml'),
+  ns=Object.keys(z.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a,b)=>a.match(/\d+/)[0]-b.match(/\d+/)[0]);if(!ns.length)throw new Error('Slide tidak ditemukan (hanya format .pptx).');
+  const sm=(await rd('ppt/presentation.xml')).match(/<p:sldSz[^>]*cx="(\d+)"[^>]*cy="(\d+)"/)||[0,12192000,6858000],CX=+sm[1],CY=+sm[2],Wd=960,Ht=Math.round(960*CY/CX),K=960/(CX/12700),out=await pl.PDFDocument.create();
+  const pos=e=>{const x=e.getElementsByTagName('a:off')[0],s=e.getElementsByTagName('a:ext')[0];return x&&s?`left:${x.getAttribute('x')/CX*Wd}px;top:${x.getAttribute('y')/CY*Ht}px;width:${s.getAttribute('cx')/CX*Wd}px;height:${s.getAttribute('cy')/CY*Ht}px;`:''};
+  const para=p=>{const al=p.getElementsByTagName('a:pPr')[0]?.getAttribute('algn'),rs=[...p.getElementsByTagName('a:r')].map(r=>{const pr=r.getElementsByTagName('a:rPr')[0],s=pr?.getAttribute('sz'),c=pr?.getElementsByTagName('a:srgbClr')[0]?.getAttribute('val');return`<span style="${s?`font-size:${s/100*K}px;`:''}${pr?.getAttribute('b')==='1'?'font-weight:700;':''}${c?`color:#${c};`:''}">${esc(r.getElementsByTagName('a:t')[0]?.textContent||'')}</span>`}).join('');return`<div style="text-align:${{ctr:'center',r:'right'}[al]||'left'}">${rs||'&nbsp;'}</div>`};
+  for(const[si,n]of ns.entries()){msg(`Slide ${si+1} dari ${ns.length}…`);const doc=xp(await rd(n)),rels={};[...xp(await rd(n.replace('slides/','slides/_rels/')+'.rels')).getElementsByTagName('Relationship')].forEach(r=>rels[r.getAttribute('Id')]=r.getAttribute('Target'));
+    const bg=doc.getElementsByTagName('p:bg')[0]?.getElementsByTagName('a:srgbClr')[0]?.getAttribute('val');let h='',fy=Ht*.06;
+    for(const e of[...doc.getElementsByTagName('*')].filter(e=>['p:sp','p:pic','p:graphicFrame'].includes(e.tagName))){const ps=pos(e);
+      if(e.tagName==='p:pic'){const rid=e.getElementsByTagName('a:blip')[0]?.getAttribute('r:embed'),tg=rels[rid]||'',ex=tg.split('.').pop().toLowerCase(),f=z.file('ppt/'+tg.replace('../',''));if(f&&ps&&['png','jpg','jpeg','gif'].includes(ex))h+=`<img style="position:absolute;${ps}" src="data:image/${ex==='jpg'?'jpeg':ex};base64,${await f.async('base64')}">`}
+      else if(e.tagName==='p:graphicFrame'){const rows=[...e.getElementsByTagName('a:tr')];if(rows.length&&ps)h+=`<table style="position:absolute;${ps}border-collapse:collapse;font-size:${14*K}px">${rows.map(r=>`<tr>${[...r.getElementsByTagName('a:tc')].map(c=>`<td style="border:1px solid #888;padding:3px 6px">${esc([...c.getElementsByTagName('a:t')].map(t=>t.textContent).join(' '))}</td>`).join('')}</tr>`).join('')}</table>`}
+      else{const P=[...e.getElementsByTagName('a:p')];if(!P.some(p=>p.textContent.trim()))continue;const body=`font-size:${18*K}px;line-height:1.25;`+P.map(()=>'').join('');if(ps)h+=`<div style="position:absolute;${ps}overflow:hidden;${body}">${P.map(para).join('')}</div>`;else{h+=`<div style="position:absolute;left:${Wd*.06}px;top:${fy}px;width:${Wd*.88}px;${body}">${P.map(para).join('')}</div>`;fy+=Math.max(50,P.length*18*K*1.4)}}}
+    const sl=document.createElement('div');sl.style.cssText=`position:relative;width:${Wd}px;height:${Ht}px;background:#${bg||'fff'};overflow:hidden;font-family:Arial,sans-serif;color:#111`;sl.innerHTML=h;
+    const wr=mkwrap(Wd,Ht);try{wr.appendChild(sl);await decodeImgs(sl);const im=await out.embedJpg(await snap(wr));out.addPage([CX/12700,CY/12700]).drawImage(im,{x:0,y:0,width:CX/12700,height:CY/12700})}finally{wr.remove()}}
+  return X(fs[0],'.pdf',await pdfBlob(out),'Teks, gambar, dan tabel ikut. Latar kompleks, bentuk, dan animasi tidak ikut')},
+async pdf2word(fs,o){const f=fs[0],pdf=await pjs(f),v=(await pdf.getPage(1)).getViewport({scale:1}),PW=v.width,PH=v.height,MG=36,CW=PW-2*MG,all=[];let chars=0;
+  for(let i=1;i<=pdf.numPages;i++){msg(`Membaca halaman ${i} dari ${pdf.numPages}…`);const pg=await pdf.getPage(i),L=lines(await pg.getTextContent());chars+=L.length;all.push({pg,L})}
+  const asImg=o.mode.startsWith('Mirip')||!chars,D=Docx(PW,PH,asImg?0:MG);
+  if(asImg){for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);if(i>1)D.brk();D.img(await(await tb(await raster(pdf,i,2),'image/jpeg',.9)).arrayBuffer(),'jpeg',PW*.99,PH*.99,1)}}
+  else{const hs=all.flatMap(a=>a.L.map(l=>l.h)).sort((a,b)=>a-b),med=hs[hs.length>>1]||11;
+    for(let i=0;i<all.length;i++){msg(`Menyusun halaman ${i+1} dari ${all.length}…`);const{pg,L}=all[i],im=await pageImgs(pg),it=[...blocks(L).map(b=>({y:b.y,b})),...im.map(m=>({y:m.y+m.h,m}))].sort((a,b)=>b.y-a.y);if(i)D.brk();
+      for(const e of it){
+        if(e.m){const k=Math.min(1,CW/e.m.w);D.img(e.m.bytes,e.m.ext,e.m.w*k,e.m.h*k)}
+        else if(e.b.t==='p'){const b=e.b,off=b.x0-b.Lm,ctr=off>30&&Math.abs((b.x0+b.r)/2-(b.Lm+b.R)/2)<12;D.p(b.s,{sz:Math.max(16,Math.min(96,Math.round(b.h*2))),b:b.h>med*1.3,jc:ctr?'center':'',ind:!ctr&&off>40?Math.round(off*20):0})}
+        else{const b=e.b,M=colsOf(b.rows.map(l=>l.cs)),rows=b.rows.map(l=>place(l.cs,M));let ws=M.map((v,j)=>(M[j+1]?M[j+1][0]:v[1]+8)-v[0]);const k=Math.min(1,CW/ws.reduce((a,c)=>a+c,0));D.tbl(rows,ws.map(w=>Math.max(300,Math.round(w*k*20))),Math.max(16,Math.min(24,Math.round(b.rows[0].h*2))))}}}}
+  return X(f,'.docx',await D.out(),asImg&&!o.mode.startsWith('Mirip')?'PDF tidak punya teks (hasil scan), jadi tiap halaman dimasukkan sebagai gambar':asImg?'Setiap halaman jadi gambar, tampilan sama persis':'Teks, tabel, dan gambar ikut. Grafik vektor tidak terbaca, pakai mode Mirip tampilan bila perlu')},
+async pdf2xlsx(fs){const pdf=await pjs(fs[0]),wb=XLSX.utils.book_new();for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);const rows=[];blocks(lines(await(await pdf.getPage(i)).getTextContent())).forEach(b=>{if(b.t==='p')rows.push([b.s]);else{const M=colsOf(b.rows.map(l=>l.cs));b.rows.forEach(l=>rows.push(place(l.cs,M)))}});XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'Hal '+i)}return X(fs[0],'.xlsx',new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})]),'Tabel dikenali dari kolom yang sejajar; satu sheet per halaman')},
+async pdf2md(fs){const pdf=await pjs(fs[0]),A=[];for(let i=1;i<=pdf.numPages;i++)A.push(blocks(lines(await(await pdf.getPage(i)).getTextContent())));const hs=A.flat().filter(b=>b.t==='p').map(b=>b.h).sort((a,b)=>a-b),m=hs[hs.length>>1]||10;let o='';
+  A.forEach((B,i)=>{B.forEach(b=>{if(b.t==='p')o+=(b.h>m*1.4?'# ':b.h>m*1.15?'## ':'')+b.s+'\n\n';else{const M=colsOf(b.rows.map(l=>l.cs));o+=b.rows.map((l,k)=>{const r=place(l.cs,M);return'| '+r.join(' | ')+' |'+(k?'':'\n|'+r.map(()=>' --- |').join(''))}).join('\n')+'\n\n'}});if(i<A.length-1)o+='---\n\n'});
+  return X(fs[0],'.md',new Blob([o],{type:'text/markdown'}),'Tabel jadi tabel Markdown; judul ditebak dari ukuran huruf')},
 async pdf2ppt(fs){const pdf=await pjs(fs[0]),v=(await pdf.getPage(1)).getViewport({scale:1}),W=v.width/72,H=v.height/72,px=new PptxGenJS();px.defineLayout({name:'P',width:W,height:H});px.layout='P';
- for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);px.addSlide().addImage({data:(await raster(pdf,i,1.6)).toDataURL('image/jpeg',.85),x:0,y:0,w:W,h:H})}return X(fs[0],'.pptx',await px.write({outputType:'blob'}),'Setiap halaman jadi gambar slide')},
+  for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);px.addSlide().addImage({data:(await raster(pdf,i,2.2)).toDataURL('image/jpeg',.9),x:0,y:0,w:W,h:H})}return X(fs[0],'.pptx',await px.write({outputType:'blob'}),'Setiap halaman jadi gambar slide, tampilan sama persis')},
 async crop(fs,o){const d=await ld(fs[0]),n=k=>Math.max(0,+o[k]||0);d.getPages().forEach(p=>{const m=p.getMediaBox(),w=m.width-n('l')-n('r'),h=m.height-n('t')-n('b');if(w<20||h<20)throw new Error('Pemotongan terlalu besar.');const x=m.x+n('l'),y=m.y+n('b');p.setCropBox(x,y,w,h);p.setMediaBox(x,y,w,h)});return X(fs[0],'-crop.pdf',await pdfBlob(d))},
-async sign(fs,o){const d=await ld(fs[0]),ft=await d.embedFont(pl.StandardFonts.TimesRomanItalic),t=o.text||'Nama';if(/[^\x20-\x7e]/.test(t))throw new Error('Hanya huruf latin dan angka biasa.');const ps=d.getPages(),sel=o.pg==='Semua halaman'?ps:[o.pg==='Halaman pertama'?ps[0]:ps[ps.length-1]],col=pl.rgb(.05,.1,.5);
- sel.forEach(p=>{const W=p.getWidth(),w=ft.widthOfTextAtSize(t,28),x=o.pos==='Kiri bawah'?50:o.pos==='Tengah bawah'?(W-w)/2:W-50-w;p.drawText(t,{x,y:70,size:28,font:ft,color:col});p.drawLine({start:{x:x-6,y:64},end:{x:x+w+6,y:64},thickness:.8,color:col})});return X(fs[0],'-ttd.pdf',await pdfBlob(d),'Tanda tangan berupa teks bergaya miring')},
 async unlock(fs,o){let pdf;try{pdf=await pjs(fs[0],o.pw)}catch(e){throw new Error(e.name==='PasswordException'?'Kata sandi salah atau belum diisi.':e.message)}return X(fs[0],'-terbuka.pdf',await pdfBlob(await rasterDoc(pdf,2,.88)),'Hasil berupa gambar, teks tidak bisa diseleksi')},
 async protect(fs,o){if(!o.pw)throw new Error('Isi kata sandi dulu.');const pdf=await pjs(fs[0]),{jsPDF}=window.jspdf;let d;for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);const v=(await pdf.getPage(i)).getViewport({scale:1}),c=await raster(pdf,i,1.8),or=v.width>v.height?'l':'p';
- if(!d)d=new jsPDF({orientation:or,unit:'pt',format:[v.width,v.height],encryption:{userPassword:o.pw,ownerPassword:o.pw,userPermissions:['print']}});else d.addPage([v.width,v.height],or);d.addImage(c.toDataURL('image/jpeg',.88),'JPEG',0,0,v.width,v.height)}return X(fs[0],'-terkunci.pdf',d.output('blob'),'Hasil berupa gambar, bisa dicetak tapi tidak disalin')}
+  if(!d)d=new jsPDF({orientation:or,unit:'pt',format:[v.width,v.height],encryption:{userPassword:o.pw,ownerPassword:o.pw,userPermissions:['print']}});else d.addPage([v.width,v.height],or);d.addImage(c.toDataURL('image/jpeg',.88),'JPEG',0,0,v.width,v.height)}return X(fs[0],'-terkunci.pdf',d.output('blob'),'Hasil berupa gambar, bisa dicetak tapi tidak bisa disalin')}
 });
+async function rasterDoc(pdf,sc,q){const out=await pl.PDFDocument.create();for(let i=1;i<=pdf.numPages;i++){msg(`Halaman ${i} dari ${pdf.numPages}…`);const v=(await pdf.getPage(i)).getViewport({scale:1}),im=await out.embedJpg(await(await tb(await raster(pdf,i,sc),'image/jpeg',q)).arrayBuffer());out.addPage([v.width,v.height]).drawImage(im,{x:0,y:0,width:v.width,height:v.height})}return out}
 
 const PDF='.pdf';
 const T=[
@@ -2147,6 +2251,21 @@ T.push(
 {id:'unlock',n:'Buka kunci PDF',d:'Hapus kata sandi PDF.',g:'◇',acc:PDF,note:'Hasil berupa gambar, teks tidak bisa diseleksi.',o:[{k:'pw',l:'Kata sandi PDF',t:'',p:1}]},
 {id:'protect',n:'Proteksi PDF',d:'Kunci PDF dengan kata sandi.',g:'◆',acc:PDF,note:'Hasil berupa gambar; bisa dicetak tapi tidak bisa disalin.',o:[{k:'pw',l:'Kata sandi baru',t:'',p:1}]}
 );
+const U=(id,o)=>Object.assign(T.find(x=>x.id===id),o);
+U('merge',{acc:'.pdf,.png,.jpg,.jpeg,.webp',d:'Satukan PDF dan gambar jadi satu file.',note:'Bisa campur PDF dan gambar. Urutan diatur dengan tombol panah.'});
+U('rotate',{o:[{k:'deg',l:'Putar searah jarum jam',s:['90','180','270']},{k:'range',l:'Halaman (kosong = semua)',t:'semua'}]});
+U('compress',{note:'Cerdas: gambar JPEG di dalam PDF dikecilkan dan teks tetap bisa diseleksi. Agresif: semua halaman jadi gambar (paling kecil).',o:[{k:'mode',l:'Mode',s:['Cerdas (teks tetap bisa diseleksi)','Agresif (semua jadi gambar)']},{k:'q',l:'Kualitas',s:['Sedang','Rendah','Tinggi']}]});
+U('pdf2jpg',{o:[{k:'fmt',l:'Format',s:['JPG','PNG']},{k:'sc',l:'Resolusi',s:['Normal','Tinggi','Sangat tinggi']}]});
+U('watermark',{note:'Mendukung semua huruf, termasuk non-Latin.',o:[{k:'text',l:'Teks',t:'RAHASIA'},{k:'op',l:'Kepekatan',s:['0.15','0.3','0.5']},{k:'ang',l:'Arah',s:['Miring','Datar']},{k:'range',l:'Halaman (kosong = semua)',t:'semua'}]});
+U('sign',{d:'Bubuhkan tanda tangan tulisan tangan.',o:[{k:'text',l:'Nama untuk tanda tangan',t:'Nama Anda'},{k:'pg',l:'Halaman',s:['Halaman terakhir','Halaman pertama','Semua halaman']},{k:'pos',l:'Posisi',s:['Kanan bawah','Tengah bawah','Kiri bawah']}]});
+U('word2pdf',{note:'Teks, gambar, dan tabel ikut. Halaman berupa gambar, jadi teks di PDF tidak bisa diseleksi.'});
+U('ppt2pdf',{note:'Teks, gambar, dan tabel ikut dengan posisi dari file. Latar kompleks, bentuk, dan animasi tidak ikut.'});
+U('xls2pdf',{note:'Semua sheet dijadikan tabel di PDF.'});
+U('html2pdf',{d:'Ubah file HTML menjadi PDF.',note:'Gambar dan tabel ikut. CSS eksternal tidak ikut.'});
+U('pdf2word',{note:'Mode Bisa diedit membawa teks, tabel, dan gambar. Grafik vektor tidak terbaca; pakai Mirip tampilan untuk hasil yang sama persis.',o:[{k:'mode',l:'Mode',s:['Bisa diedit (teks, tabel, gambar)','Mirip tampilan (gambar per halaman)']}]});
+U('pdf2xlsx',{note:'Tabel dikenali dari kolom yang sejajar, satu sheet per halaman.'});
+U('pdf2md',{note:'Tabel jadi tabel Markdown, judul ditebak dari ukuran huruf.'});
+U('pdf2ppt',{note:'Setiap halaman jadi gambar slide, tampilan sama persis.'});
 const GR=[['Atur PDF','#e5322d',['merge','split','remove','extract','organize','scan']],['Optimalkan PDF','#0b8f5a',['compress','repair']],['Konversi ke PDF','#d4a000',['jpg2pdf','word2pdf','ppt2pdf','xls2pdf','html2pdf']],['Konversi dari PDF','#1d7de0',['pdf2jpg','pdf2word','pdf2ppt','pdf2xlsx','pdf2md']],['Edit PDF','#7b3fe4',['rotate','pagenum','watermark','crop','sign']],['Keamanan PDF','#1d4ed8',['unlock','protect']],['Lainnya','#a06835',['convert']]];
 $('#grid').innerHTML=GR.map(([h,c,ids])=>`<div class="col-span-full text-[11px] font-bold uppercase tracking-wide text-slate-500 mt-2">${h}</div>`+ids.map(id=>{const t=T.find(x=>x.id===id);t.c=c;return `<button class="card" style="--c:${t.c}" data-t="${t.id}"><div class="g">${t.g}</div><b>${t.n}</b><small>${t.d}</small></button>`}).join('')).join('');
 
