@@ -758,12 +758,14 @@
         async function hydrateRequisition(id) {
             const r = requisitionsData[id];
             if (!r) return null;
-            if (!isLive) { showToast("Data masih sinkronisasi, coba lagi sesaat.", "error"); return null; }
-            const items = r.items || [];
+            const items = Array.isArray(r.items) ? r.items : Object.values(r.items || {});
             const needs = items.some(it => !it.attachmentDataUrl && it.hasAttachment);
             let att = {};
             if (needs) {
-                if (!attCache[id]) attCache[id] = (await db.ref('/attachments/' + id).once('value')).val() || {};
+                if (!attCache[id]) {
+                    try { attCache[id] = (await db.ref('/attachments/' + id).once('value')).val() || {}; }
+                    catch (e) { showToast("Lampiran gagal dimuat: " + e.message, "error"); attCache[id] = {}; }
+                }
                 att = attCache[id];
             }
             return { ...r, items: items.map((it, i) => (it.attachmentDataUrl || !it.hasAttachment) ? it : { ...it, attachmentDataUrl: att[i] || '' }) };
@@ -838,7 +840,7 @@
         function loadReqCache() {
             try {
                 const c = JSON.parse(localStorage.getItem('dobah_req_cache') || 'null');
-                if (c && Object.keys(c).length) { requisitionsData = c; renderDashboard(); renderRequisitions(); }
+                if (c && Object.keys(c).length) { Object.keys(c).forEach(k => { if (c[k] && typeof c[k] === 'object') c[k].id = k; }); requisitionsData = c; renderDashboard(); renderRequisitions(); }
             } catch (e) {}
         }
         function saveReqCache() {
@@ -880,6 +882,7 @@
             // Listen to Requisitions node
             db.ref('/requisitions').on('value', (snapshot) => {
                 requisitionsData = snapshot.val() || {};
+                Object.keys(requisitionsData).forEach(k => { if (requisitionsData[k] && typeof requisitionsData[k] === 'object') requisitionsData[k].id = k; });
                 isLive = true;
                 saveReqCache();
                 updateMigrationBanner();
@@ -1469,8 +1472,9 @@
         }
 
         function viewDetail(id) {
-            const r = requisitionsData[id];
-            if (!r) return;
+            const r0 = requisitionsData[id];
+            if (!r0) { showToast("Data pengajuan tidak ditemukan, muat ulang halaman.", "error"); return; }
+            const r = { ...r0, id, items: Array.isArray(r0.items) ? r0.items : Object.values(r0.items || {}) };
 
             document.getElementById('detail-title').innerText = `Detail Pengajuan: ${r.reqNo}`;
             const content = document.getElementById('modal-detail-content');
